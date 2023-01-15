@@ -2,8 +2,8 @@
 #include <stdio.h>
 
 #include "stm8.h"
-#include "image.h"
-//#include "font_24x32.h"
+//#include "image.h"
+#include "font_24x32.h"
 
 #define EPD_CS_PIN      4
 #define EPD_DC_PIN      3
@@ -70,6 +70,19 @@ void    W25qxx_Sleep(void);
 
 void DisplayImage(uint32_t address);
 
+
+unsigned short xs = 1;
+
+#define srand(X) {xs=X;}
+
+unsigned short rand()
+{
+    xs ^= xs << 7;
+    xs ^= xs >> 9;
+    xs ^= xs << 8;
+    return xs;
+}
+
 static inline void __delay_ms(uint16_t ms) {
     uint32_t i;
     for (i = 0; i < ((F_CPU / 18000UL) * ms); i++)
@@ -114,7 +127,7 @@ void RTC_Init(void) {
     //requires WUTWF and not WUTE
     RTC_CR1 = 0x04; //ck_spre source (1Hz)
     RTC_WUTRH = 0; //0x02;
-    RTC_WUTRL = 0x20;//A;//0x58; //600 seconds
+    RTC_WUTRL = 0x5;//A;//0x58; //600 seconds
     
     RTC_CR2 = 0x44; //Enable Wakeup timer and interrupt
 
@@ -220,28 +233,29 @@ void DisplayImage(uint32_t address) {
         W25qxx_ReadBytes(buf, address+i, sizeof(buf));
         EPD_PushData(buf, sizeof(buf));
     }
-    EPD_StartDisplay(1);
-    for (uint16_t i=0; i< EPD_SIZE; i+=sizeof(buf)) {
-        //memcpy(buf, gImage+i, sizeof(buf));
-        W25qxx_ReadBytes(buf, address+i, sizeof(buf));
-        EPD_PushData(buf, sizeof(buf));
-    }
     W25qxx_Sleep();
     EPD_Refresh();
 
     EPD_Sleep();
 }
 
+void opt_write() {
+    FLASH_CR2 |= (1 << 7);
+    /* write option byte and it's complement */
+    *(volatile unsigned char *)0x480A = 1; //Enable BOR
+    /* wait until programming is finished */
+    FLASH_CR2 &= ~(1 << 7);
+}
+
 void main(void)
 {
     uint8_t frame = 1;   
+    uint8_t idx = 255;
     uint16_t checks=0; 
     uint16_t factory_vref = 0x0691;
     uint16_t last_voltage =0;
 
     //__delay_ms(1000);
-
-    *(volatile unsigned char *)0x480A = 1; //Enable BOR
 
     // SPI port setup: MISO is pullup in, MOSI & SCK are push-pull out
     PB_DDR |= (1<<0) | (1<<2) | (1<<3) | (1<<4) | (1<<5) | (1<<6); // SCK and MOSI
@@ -253,6 +267,7 @@ void main(void)
     PA_CR1 |= (1<<3);
     PA_DDR |= (1<<3);
     Boost_Off();
+    PWR2_SetLow();
 
     Clock_Init();
     RTC_Init();
@@ -272,29 +287,22 @@ void main(void)
         //vrefint = ((uint32_t)300*vrefint / 4095);
         
         checks++;
-        if (vrefint > 300)
+        if (vrefint > 240)
         { 
+            int nidx;
+            do {
+                nidx = rand() % 5;
+            } while (idx == nidx);
+            idx = nidx;
+            
             Boost_On();
-            //__delay_ms(100);
             PWR2_SetHigh();
-            //__delay_ms(1000);
+            __delay_ms(10);
             //__asm__ ("sim"); //disable interrupts
             SPI_Init();
 
-            W25qxx_Init();
-            uint32_t id = W25qxx_GetId();
-            if (id == 0xEF4014)
-                PC_HIGH(RED_LED);
-            /*
-            W25qxx_Erase32(0);
-            for (uint16_t i=0; i<5808; i+=256){
-                W25qxx_WritePage(&gImage[i], i, 256);
-            }
-            //W25qxx_Sleep();
-            */
-
             //DisplayData(frame++, checks, vrefint);
-            DisplayImage(0); // update display
+            DisplayImage(idx * 5888); // update display
             checks = 0;
         }
         else if (vrefint > last_voltage) {
@@ -307,17 +315,17 @@ void main(void)
 
             uint8_t led = GRN_LED;
             
-            Tim4_Init();
+            //Tim4_Init();
             for (uint8_t i=0; i<5; ++i) {
                 PC_HIGH(led); 
-                //__delay_ms(5);
-                __asm__("wfi");
+                __delay_ms(5);
+                //__asm__("wfi");
                 PC_LOW(led); 
-                //__delay_ms(5);
-                __asm__("wfi");
+                __delay_ms(5);
+                //__asm__("wfi");
             } 
-            Tim4_Disable();
-        }
+            //Tim4_Disable();
+        }//*/
 
         last_voltage = vrefint;
         PWR2_SetLow(); 
@@ -402,13 +410,16 @@ static void EPD_SendCommand(uint8_t cmd, uint16_t datalen, const uint8_t *data) 
 }
 
 static void EPD_Wait(void) {
-	for (int i=0; i<1000; ++i){
+	for (int i=0; i<300; ++i){
         __delay_ms(10);
-		if (EPD_BUSY_GetValue() > 0)
+		if (EPD_BUSY_GetValue() == 0)
 			return;
 	}
 	//printf("wait failed\n");
 }
+
+    static const uint16_t WIDTH = 176;
+    static const uint16_t HEIGHT = 264;
 
 void EPD_Init(void) {
     EPD_RST_SetLow();
@@ -416,50 +427,41 @@ void EPD_Init(void) {
     EPD_RST_SetHigh();
 	__delay_ms(10);
 
+    //EPD 2.7v2
+    EPD_SendCommand(0x12, 0, NULL);  //SWRESET
+    EPD_Wait();
+    //EPD_SendCommand(0x11, 1, "\x03"); //data entry mode       
+    //EPD_SendCommand(0x3C, 1, "\x05"); //BorderWavefrom
+    EPD_SendCommand(0x18, 1, "\x80"); //Read built-in temperature sensor
+    EPD_SendCommand(0x22, 1, "\xb1"); // Power On
+    EPD_SendCommand(0x20, 0, NULL);
+    EPD_Wait();
+
+    EPD_SendCommand(0x1A, 2, "\x64\x00"); //Read built-in temperature sensor
+    EPD_SendCommand(0x22, 1, "\x91"); // Power On
+    EPD_SendCommand(0x20, 0, NULL);
+    EPD_Wait();
     
-	//EPD_2_7
-	//EPD_SendCommand(0x01, 4, "\x03\x00\x2b\x2b"); // POWER SETTING
-	EPD_SendCommand(0x06, 3, (uint8_t*)"\x07\x07\x17"); //BOOSTER_SOFT_START
-
-	/*EPD_SendCommand(0xF8, 2, "\x60\xa5"); //Power Optimization?
-	EPD_SendCommand(0xF8, 2, "\x89\xa5"); //Power Optimization?
-	EPD_SendCommand(0xF8, 2, "\x90\x00"); //Power Optimization?
-	EPD_SendCommand(0xF8, 2, "\x93\x2a"); //Power Optimization?
-	EPD_SendCommand(0xF8, 2, "\xa0\xa5"); //Power Optimization?
-	EPD_SendCommand(0xF8, 2, "\xa1\x00"); //Power Optimization?
-	EPD_SendCommand(0xF8, 2, "\x73\x41"); //Power Optimization?*/
-
-	EPD_SendCommand(0x04, 0, NULL);  //POWER_ON
-	EPD_Wait();
-
-	EPD_SendCommand(0x00, 1, (uint8_t*)"\x1f"); //PANEL
-	EPD_SendCommand(0x0D, 0, NULL);
-	EPD_SendCommand(0x16, 1, (uint8_t*)"\x00"); //DISP_REFRESH
-
-	EPD_SendCommand(0xF8, 2, (uint8_t*)"\x60\xa5"); //Power Optimization?
-	EPD_SendCommand(0xF8, 2, (uint8_t*)"\x73\x23"); //Power Optimization?
-	EPD_SendCommand(0xF8, 2, (uint8_t*)"\x7C\x00"); //Power Optimization?
-
-	EPD_SendCommand(0x50, 1, (uint8_t*)"\x97"); //VCOM_DATA_INTERNAL
 }
 
 void EPD_Refresh(void) {
-    EPD_SendCommand(0x12, 0, NULL);//REFRESH
+
+    EPD_SendCommand(0x22, 1, "\xc7");
+    EPD_SendCommand(0x20, 0, NULL);
+    //EPD_SendCommand(0x12, 0, NULL);//REFRESH
     EPD_Wait();
 }
 
 void EPD_Display(const uint8_t *imgdata) {
 	//EPD_SendCommand(AREA, 7, "\0\x7F\0\0\x01\x27\x28");
-    EPD_SendCommand(0x10, EPD_SIZE, imgdata);
-	EPD_SendCommand(0x13, EPD_SIZE, imgdata);
+    //EPD_SendCommand(0x10, EPD_SIZE, imgdata);
+	//EPD_SendCommand(0x13, EPD_SIZE, imgdata);
+    EPD_SendCommand(0x24, EPD_SIZE, imgdata);
     EPD_Refresh();
 }
 
 void EPD_StartDisplay(uint8_t page) {
-    if (page == 0)
-        EPD_SendCommand(0x10,0, NULL);
-    else
-        EPD_SendCommand(0x13,0, NULL);
+    EPD_SendCommand(0x24,0, NULL);
 }
 
 void EPD_PushData(const uint8_t *imgdata, uint16_t len) {
@@ -474,11 +476,11 @@ void EPD_PushData(const uint8_t *imgdata, uint16_t len) {
 
 void EPD_Sleep(void) {
 	//EPD_SendCommand(0x50, 1, "\xf7"); //VCOM_DATA FLOATING
-    EPD_SendCommand(0x02, 0, NULL); //POWER_OFF
-    EPD_SendCommand(0x07, 1, (uint8_t*)"\xA5"); //SLEEP
+    //EPD_SendCommand(0x02, 0, NULL); //POWER_OFF
+    //EPD_SendCommand(0x07, 1, (uint8_t*)"\xA5"); //SLEEP
+    EPD_SendCommand(0x10, 1, "\x01"); //SLEEP
 }
 
-/*
 void DisplayData(uint8_t count, uint16_t sec, uint16_t volt) {
     char str[12];
     str[2] = ' ';
@@ -494,6 +496,7 @@ void DisplayData(uint8_t count, uint16_t sec, uint16_t volt) {
     str[9] = '0' + ((volt /10)% 10);
     str[10] = '0' + ((volt)% 10);
 
+    W25qxx_Sleep();
     EPD_Init();
     EPD_StartDisplay(0);
     EPD_PushString(str);
@@ -523,7 +526,6 @@ void  EPD_PushString(const char* str) {
         EPD_PushChar(str[10-i]);
     }
 }
-*/
 
 void W25qxx_Init(void) {
     FLASH_CS_SetLow();

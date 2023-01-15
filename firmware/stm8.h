@@ -36,6 +36,12 @@
 #define PF_CR1  		*(volatile unsigned char *)0x501c
 #define PF_CR2  		*(volatile unsigned char *)0x501d
 
+#define FLASH_CR1       *(volatile unsigned char *)0x5050
+#define FLASH_CR2       *(volatile unsigned char *)0x5051
+#define FLASH_PUKR      *(volatile unsigned char *)0x5052
+#define FLASH_DUKR       *(volatile unsigned char *)0x5053
+#define FLASH_IAPSR       *(volatile unsigned char *)0x5054
+
 #define RS_CR           *(volatile unsigned char *)0x50B0
 #define RS_SR           *(volatile unsigned char *)0x50B1
 #define PWR_CSR1        *(volatile unsigned char *)0x50B2
