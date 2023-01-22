@@ -255,6 +255,8 @@ void main(void)
     uint16_t factory_vref = 0x0691;
     uint16_t last_voltage =0;
 
+    uint8_t led = GRN_LED;
+
     //__delay_ms(1000);
 
     // SPI port setup: MISO is pullup in, MOSI & SCK are push-pull out
@@ -268,6 +270,7 @@ void main(void)
     PA_DDR |= (1<<3);
     Boost_Off();
     PWR2_SetLow();
+    
 
     Clock_Init();
     RTC_Init();
@@ -287,23 +290,24 @@ void main(void)
         //vrefint = ((uint32_t)300*vrefint / 4095);
         
         checks++;
-        if (vrefint > 240)
+        if (vrefint > 250)
         { 
             int nidx;
             do {
-                nidx = rand() % 5;
+                nidx = rand() % 10;
             } while (idx == nidx);
             idx = nidx;
-            
+
             Boost_On();
             PWR2_SetHigh();
             __delay_ms(10);
             //__asm__ ("sim"); //disable interrupts
             SPI_Init();
 
-            //DisplayData(frame++, checks, vrefint);
-            DisplayImage(idx * 5888); // update display
+            DisplayData(frame++, checks, vrefint);
+            //DisplayImage(idx * 5888); // update display
             checks = 0;
+
         }
         else if (vrefint > last_voltage) {
 
@@ -410,7 +414,7 @@ static void EPD_SendCommand(uint8_t cmd, uint16_t datalen, const uint8_t *data) 
 }
 
 static void EPD_Wait(void) {
-	for (int i=0; i<300; ++i){
+	for (int i=0; i<500; ++i){
         __delay_ms(10);
 		if (EPD_BUSY_GetValue() == 0)
 			return;
