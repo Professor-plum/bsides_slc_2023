@@ -298,14 +298,29 @@ void main(void)
             } while (idx == nidx);
             idx = nidx;
 
+            PA_CR1 |= (1<<2);
+            uint8_t led = (PA_IDR & (1<<2) )?GRN_LED:RED_LED;
+            PA_CR1 &= ~(1<<2);
+            
+            
+            //Tim4_Init();
+            for (uint8_t i=0; i<50; ++i) {
+                PC_HIGH(led); 
+                __delay_ms(5);
+                //__asm__("wfi");
+                PC_LOW(led); 
+                __delay_ms(5);
+                //__asm__("wfi");
+            } 
+
             Boost_On();
             PWR2_SetHigh();
             __delay_ms(10);
             //__asm__ ("sim"); //disable interrupts
             SPI_Init();
 
-            DisplayData(frame++, checks, vrefint);
-            //DisplayImage(idx * 5888); // update display
+            //DisplayData(frame++, checks, vrefint);
+            DisplayImage(idx * 5888); // update display
             checks = 0;
 
         }
