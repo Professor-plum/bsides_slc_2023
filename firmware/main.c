@@ -68,7 +68,7 @@ void    W25qxx_WritePage(uint8_t *pBuffer, uint32_t Page_Address, uint16_t dataS
 void    W25qxx_Sleep(void);
 #define W25qxx_Spi SPI_ExchangeByte
 
-void DisplayImage(uint32_t address);
+void DisplayImage(int idx);
 
 
 unsigned short xs = 1;
@@ -215,8 +215,9 @@ void memcpy(uint8_t *dst, uint8_t *src, uint16_t len) {
         dst[i] = src[i];
 }
 
-void DisplayImage(uint32_t address) {
+void DisplayImage(int idx) {
     uint8_t buf[726];
+    uint32_t address = (uint32_t)idx * 5888;
 
     EPD_Init();
     W25qxx_Init();
@@ -250,7 +251,7 @@ void opt_write() {
 void main(void)
 {
     uint8_t frame = 1;   
-    uint8_t idx = 255;
+    uint16_t idx = 0;
     uint16_t checks=0; 
     uint16_t factory_vref = 0x0691;
     uint16_t last_voltage =0;
@@ -288,31 +289,14 @@ void main(void)
         //ADC_Disable();
         vrefint =(((uint32_t)factory_vref*300)/vrefint);
         //vrefint = ((uint32_t)300*vrefint / 4095);
+
+        PA_CR1 |= (1<<2);
+        uint8_t unlocked = (PA_IDR & (1<<2) );
+        PA_CR1 &= ~(1<<2);
         
         checks++;
-        if (vrefint > 250)
+        if (vrefint > 255)
         { 
-            int nidx;
-            do {
-                nidx = rand() % 10;
-            } while (idx == nidx);
-            idx = nidx;
-
-            PA_CR1 |= (1<<2);
-            uint8_t led = (PA_IDR & (1<<2) )?GRN_LED:RED_LED;
-            PA_CR1 &= ~(1<<2);
-            
-            
-            //Tim4_Init();
-            for (uint8_t i=0; i<50; ++i) {
-                PC_HIGH(led); 
-                __delay_ms(5);
-                //__asm__("wfi");
-                PC_LOW(led); 
-                __delay_ms(5);
-                //__asm__("wfi");
-            } 
-
             Boost_On();
             PWR2_SetHigh();
             __delay_ms(10);
@@ -320,9 +304,17 @@ void main(void)
             SPI_Init();
 
             //DisplayData(frame++, checks, vrefint);
-            DisplayImage(idx * 5888); // update display
+            DisplayImage(idx); // update display
             checks = 0;
 
+            uint16_t nidx;
+            do {
+                nidx = rand() % 12;
+                if (unlocked && (nidx==1)) {
+                    nidx = 12 + rand() % 10;
+                }
+            } while (idx == nidx);
+            idx = nidx;
         }
         else if (vrefint > last_voltage) {
 
@@ -332,7 +324,7 @@ void main(void)
             //ADC_Disable();
             //vsolar = ((uint32_t)vsolar*vrefint / 4095);
 
-            uint8_t led = GRN_LED;
+            uint8_t led = unlocked?GREEN_LED:RED_LED;
             
             //Tim4_Init();
             for (uint8_t i=0; i<5; ++i) {
@@ -346,6 +338,7 @@ void main(void)
             //Tim4_Disable();
         }//*/
 
+        xs = rand(); //seeding rand
         last_voltage = vrefint;
         PWR2_SetLow(); 
         Boost_Off();
