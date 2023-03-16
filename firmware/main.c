@@ -324,7 +324,7 @@ void main(void)
             //ADC_Disable();
             //vsolar = ((uint32_t)vsolar*vrefint / 4095);
 
-            uint8_t led = unlocked?GREEN_LED:RED_LED;
+            uint8_t led = unlocked?GRN_LED:RED_LED;
             
             //Tim4_Init();
             for (uint8_t i=0; i<5; ++i) {
